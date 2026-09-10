@@ -16,6 +16,7 @@ venv/
 *.swp
 *.swo
 .DS_Store
+*.blend1
 
 # Temporary test outputs
 test_full_v3.stl

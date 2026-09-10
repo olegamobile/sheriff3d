@@ -42,6 +42,17 @@
 ### Рендер
 `render_v3_clean.py` — собственный ортографический z-buffer-растеризатор (`zbuffer_render`). **Не используйте `Poly3DCollection` из mplot3d**: он сортирует полигоны по их центрам, и длинные узкие треугольники после CSG рисуются в неверном порядке — на крыше появляются ложные «рваные» веера, которых в геометрии нет (на это ушёл один лишний цикл правок).
 
+### Булевы операции через `manifold3d` и Blender
+- В генераторе `generate_sheriff_models.py` используется библиотека `manifold3d` (C++ CSG-движок) для точного булева объединения и срезов.
+- Также доступен **Blender 5.2** (`C:\Program Files\Blender Foundation\Blender 5.2\blender.exe`):
+  - Готовый файл проекта: **`Jouet_Sheriff_600.blend`** (детали разбиты по коллекциям, настроены PBR-материалы, студийное освещение и камера).
+  - Скрипт пересборки сцены: `build_blender_project.py`.
+  - Запуск скриптов в Blender в фоновом режиме:
+    ```bash
+    & "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" Jouet_Sheriff_600.blend --background --python your_script.py
+    ```
+  - **Blender MCP:** настроен аддон `blender_mcp` (порт 9876) и сервер `blender-mcp`. При открытом GUI Blender с запущенным сервером агент может напрямую управлять сценой и геометрией.
+
 ### Разрезы и пазы
 - `m_wl = m_full - cut_box` (срез по КВЛ $Z=0$), `m_bottom = m_full - top_box`.
 - `m_keel_split = m_bottom - pin_pair(180)` — глубина паза в киле **180 мм**, как в V3.
