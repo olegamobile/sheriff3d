@@ -20,7 +20,7 @@ CABIN_ROOF_CAMBER = 25.0    # roof crown
 CABIN_MARGIN     = 120.0    # side-deck strip between sheer and cabin wall (same level as the gunwale)
 WALL_TUMBLEHOME  = np.radians(20.0)   # cabin walls lean inward
 SLOPE_ANGLE      = np.radians(32.0)   # forward slope of the coachroof (straight ahead)
-BULKHEAD_RAKE    = np.radians(8.0)    # aft bulkhead leans forward at the top
+BULKHEAD_RAKE    = np.radians(30.0)   # aft bulkhead leans forward, parallel to the window's aft edge
 ROOF_AFT_R       = 150.0    # plan-view radius of the aft roof corners
 # Rounded nose: the flat roof ends in a half-ellipse in plan view (semi-axis ROOF_NOSE_L
 # along X from X_ROOF_FRONT, half roof width across). The front face falls forward at
@@ -29,13 +29,16 @@ ROOF_AFT_R       = 150.0    # plan-view radius of the aft roof corners
 ROOF_NOSE_L      = 400.0
 NOSE_CORNER_BLEND = 220.0
 
-# Slightly recessed walkways along both roof edges
+# Slightly recessed walkways along both roof edges, full roof length, with a small lip outboard
 WALKWAY_W        = 250.0
 WALKWAY_DEPTH    = 20.0
+WALKWAY_LIP_W    = 40.0
+WALKWAY_LIP_H    = 15.0     # lip stands this much above the roof edge line
 
-# Sunken foredeck: the gunwale strip stays at sheer level, the deck inside drops down;
-# shallow next to the cabin, deeper towards the bow (planar sunken deck)
-FOREDECK_RIM     = 150.0    # width of the strip along the sheer
+# Sunken foredeck: a narrow rim at the sheer, tilted slightly inboard, then a slope down to
+# the sunken deck; shallow next to the cabin, deeper towards the bow (planar sunken deck)
+FOREDECK_RIM     = 50.0     # width of the rim along the sheer
+FOREDECK_RIM_TILT = 10.0    # inner edge of the rim is this much lower than the outer edge
 FOREDECK_RECESS_AFT = 70.0  # depth below the centreline deck at the cabin
 FOREDECK_RECESS_FWD = 160.0 # depth at the forward end of the recess
 FOREDECK_SLOPE_W = 150.0    # horizontal width of the slope from the rim down to the sunken deck
@@ -46,22 +49,24 @@ HATCH_X0, HATCH_X1 = 3850.0, 4150.0
 HATCH_HALF_W     = 270.0
 HATCH_RAISE      = 15.0
 
-# Side windows (trapezoid, aluminium bezel, tinted glass) — nearly full wall height
+# Side windows (trapezoid, aluminium bezel, tinted glass): sit high on the wall and wrap
+# ~50 mm over the roof edge; both slanted edges are parallel to the raked bulkhead
 WIN_X_BOT        = (2400.0, 3100.0)
-WIN_X_TOP        = (2540.0, 2960.0)
-WIN_Z_ABOVE_BASE = 45.0
-WIN_H            = 250.0
+WIN_Z_ABOVE_BASE = 90.0
+WIN_H            = 300.0
+WIN_SLANT        = BULKHEAD_RAKE
+WIN_X_TOP        = (WIN_X_BOT[0] + WIN_H * np.tan(WIN_SLANT), WIN_X_BOT[1] - WIN_H * np.tan(WIN_SLANT))
 WIN_FRAME_W      = 35.0
 WIN_FRAME_RAISE  = 12.0
 WIN_GLASS_RECESS = 8.0
 
-# Companionway door (closed, recessed outline in the aft bulkhead)
-DOOR_HALF_W      = 280.0
-DOOR_Z0, DOOR_Z1 = 550.0, 1030.0
-DOOR_RECESS      = 12.0
+# Companionway: large opening in the raked bulkhead, modelled as a deep pocket
+DOOR_HALF_W      = 350.0
+DOOR_Z0, DOOR_Z1 = 520.0, 1060.0
+DOOR_RECESS      = 200.0
 
-# Mast step pad, right at the roof crease
-MAST_X           = 3690.0
+# Mast step pad on the roof, a little aft of the crease
+MAST_X           = 3560.0
 MAST_PAD_R       = 70.0
 
 # Cockpit: benches and footwell run from the transom wall to the bulkhead (no aft seat)
@@ -327,16 +332,19 @@ def build_jouet_sheriff_v4():
         t = (x - X_ROOF_FRONT) / (FOREDECK_END - X_ROOF_FRONT)
         return fd_z0 + t * (fd_z1 - fd_z0)
 
+    # X where the raked bulkhead meets the roof edge: the aft roof corners are rounded from here
+    x_roof_aft = X_BULKHEAD + (roof_side_aft + CABIN_ROOF_CAMBER - z_deck_bulk) * np.tan(BULKHEAD_RAKE)
+
     def wall_geometry(x, d=0.0):
         """(y_base, z_base, y_top, z_roof_side) of the cabin wall at station x (flat-roof part)."""
         b = beam(x)
         y_base = b - CABIN_MARGIN + d
-        dx_aft = min(ROOF_AFT_R, max(0.0, X_BULKHEAD + ROOF_AFT_R - x))
-        y_base -= ROOF_AFT_R - np.sqrt(ROOF_AFT_R ** 2 - dx_aft ** 2)
         z_base = deck_z(x, y_base)
         zrs = roof_side_z(x) + d
         h_wall = max(0.0, zrs - z_base)
         y_top = y_base - h_wall * np.tan(WALL_TUMBLEHOME)
+        dx_aft = min(ROOF_AFT_R, max(0.0, x_roof_aft + ROOF_AFT_R - x))
+        y_top -= ROOF_AFT_R - np.sqrt(ROOF_AFT_R ** 2 - dx_aft ** 2)
         return y_base, z_base, max(y_top, 8.0), zrs
 
     roof_nose_hw = wall_geometry(X_ROOF_FRONT)[2]       # roof half-width at the crease
@@ -372,8 +380,9 @@ def build_jouet_sheriff_v4():
     # the nose is fully below the body bottom this far forward
     x_nose_end = X_ROOF_FRONT + ROOF_NOSE_L + \
         (roof_side_front + CABIN_ROOF_CAMBER - (deck_z(X_ROOF_FRONT, 0.0) - 180.0)) / np.tan(SLOPE_ANGLE)
-    cab_x = np.concatenate([np.arange(X_BULKHEAD - 50.0, X_BULKHEAD + ROOF_AFT_R + 1.0, 15.0),
-                            np.arange(X_BULKHEAD + ROOF_AFT_R + 50.0, X_ROOF_FRONT, 50.0), [X_ROOF_FRONT],
+    cab_x = np.concatenate([np.arange(X_BULKHEAD - 50.0, x_roof_aft, 50.0),
+                            np.arange(x_roof_aft, x_roof_aft + ROOF_AFT_R + 1.0, 15.0),
+                            np.arange(x_roof_aft + ROOF_AFT_R + 50.0, X_ROOF_FRONT, 50.0), [X_ROOF_FRONT],
                             np.arange(X_ROOF_FRONT + 25.0, x_nose_end + 50.0, 25.0)])
 
     def cabin_body(d=0.0):
@@ -389,10 +398,24 @@ def build_jouet_sheriff_v4():
 
     cab = cabin_body(0.0) - rake_cut(X_BULKHEAD)
 
-    # Companionway door: recessed outline in the aft bulkhead
-    cab_door_ref = cabin_body(0.0) - rake_cut(X_BULKHEAD + DOOR_RECESS / np.cos(BULKHEAD_RAKE))
-    door_box = mbox(X_BULKHEAD - 200.0, X_BULKHEAD + 400.0, -DOOR_HALF_W, DOOR_HALF_W, DOOR_Z0, DOOR_Z1)
-    cab = cab - (door_box - cab_door_ref)
+    # Recessed walkways along both roof edges (full length), leaving a lip outboard,
+    # plus a small rail on top of that lip
+    def walkway_sections(sign, lip=False):
+        secs = []
+        for x in np.arange(x_roof_aft - 30.0, X_ROOF_FRONT + 61.0, 25.0):
+            _, _, y_top, zrs = wall_geometry(x)
+            if lip:
+                y_in, y_out = y_top - WALKWAY_LIP_W, y_top + 4.0
+                z0, z1 = zrs - 80.0, zrs + WALKWAY_LIP_H
+            else:
+                y_in, y_out = y_top - WALKWAY_W, y_top - WALKWAY_LIP_W
+                z0, z1 = zrs - WALKWAY_DEPTH, zrs + 300.0
+            secs.append(np.array([[x, sign * y_in, z0], [x, sign * y_in, z1],
+                                  [x, sign * y_out, z1], [x, sign * y_out, z0]]))
+        return secs
+    cab = cab - loft(walkway_sections(+1)) - loft(walkway_sections(-1))
+    cab = cab + loft(walkway_sections(+1, lip=True)) + loft(walkway_sections(-1, lip=True))
+    cab = cab - rake_cut(X_BULKHEAD)
 
     # Side windows: raised trapezoid bezel + recessed tinted pane, both sides
     def win_prism(inset):
@@ -417,17 +440,6 @@ def build_jouet_sheriff_v4():
     # Mast step pad at the forward edge of the flat roof
     mast_pad = trimesh.creation.cylinder(radius=MAST_PAD_R, height=60.0)
     mast_pad.apply_translation([MAST_X, 0.0, roof_side_z(MAST_X) + CABIN_ROOF_CAMBER + 10.0])
-    # Recessed walkways along both roof edges: flat cut WALKWAY_DEPTH below the roof edge line
-    def walkway_sections(sign):
-        secs = []
-        for x in np.arange(X_BULKHEAD + ROOF_AFT_R + 10.0, X_ROOF_FRONT - 19.0, 25.0):
-            _, _, y_top, zrs = wall_geometry(x)
-            y_in, y_out = y_top - WALKWAY_W, y_top + 200.0
-            z0, z1 = zrs - WALKWAY_DEPTH, zrs + 300.0
-            secs.append(np.array([[x, sign * y_in, z0], [x, sign * y_in, z1],
-                                  [x, sign * y_out, z1], [x, sign * y_out, z0]]))
-        return secs
-    cab = cab - loft(walkway_sections(+1)) - loft(walkway_sections(-1))
     cab = cab + to_manifold(mast_pad)
     cabin_solid = to_watertight_trimesh(cab)
     print(f"Coachroof Solid: Watertight={cabin_solid.is_watertight}")
@@ -451,12 +463,19 @@ def build_jouet_sheriff_v4():
             hw = min(hw, footwell_hw(X_BULKHEAD) + np.sqrt(max(0.0, SEAT_END_R ** 2 - (x - xc) ** 2)))
         return hw
 
+    # The well is clipped by the raked bulkhead plane so the bulkhead is raked right down to the seats
     well_x = np.concatenate([np.arange(X_COCKPIT_AFT, X_BULKHEAD - SEAT_END_R, 40.0),
                              np.arange(X_BULKHEAD - SEAT_END_R, X_BULKHEAD - 1.0, 10.0), [X_BULKHEAD]])
-    cockpit_well = loft([rect_sec(x, well_hw(x), SEAT_Z, 2500.0) for x in well_x])
+    cockpit_well = loft([rect_sec(x, well_hw(x), SEAT_Z, 2500.0) for x in well_x]) ^ rake_cut(X_BULKHEAD)
 
+    # Footwell ends where the raked bulkhead reaches seat level (a bridge-deck sill remains)
+    x_footwell_fwd = X_BULKHEAD - (z_deck_bulk - SEAT_Z) * np.tan(BULKHEAD_RAKE)
     footwell = loft([rect_sec(X_COCKPIT_AFT, footwell_hw(X_COCKPIT_AFT), FLOOR_Z, SEAT_Z + 100.0),
-                     rect_sec(X_BULKHEAD, footwell_hw(X_BULKHEAD), FLOOR_Z, SEAT_Z + 100.0)])
+                     rect_sec(x_footwell_fwd, footwell_hw(x_footwell_fwd), FLOOR_Z, SEAT_Z + 100.0)])
+
+    # Companionway: large opening in the raked bulkhead, modelled as a pocket DOOR_RECESS deep
+    door_box = mbox(X_BULKHEAD - 300.0, X_BULKHEAD + 1200.0, -DOOR_HALF_W, DOOR_HALF_W, DOOR_Z0, DOOR_Z1)
+    door_pocket = door_box ^ rake_cut(X_BULKHEAD + DOOR_RECESS / np.cos(BULKHEAD_RAKE))
 
     # Sunken foredeck: rim at sheer level, sloped inner edge, flat sunken deck, closing in a V forward
     def foredeck_sections():
@@ -467,9 +486,12 @@ def build_jouet_sheriff_v4():
             if hw_top < 12.0:
                 break
             hw_floor = max(hw_top - FOREDECK_SLOPE_W, 6.0)
-            z_top, z_floor = deck_z(x, 0.0) + 5.0, foredeck_z(x)
-            secs.append(np.array([[x, hw_top, 2000.0], [x, hw_top, z_top], [x, hw_floor, z_floor],
-                                  [x, -hw_floor, z_floor], [x, -hw_top, z_top], [x, -hw_top, 2000.0]]))
+            hw_edge = min(beam(x) - 8.0, hw_top + FOREDECK_RIM - 8.0)
+            z_edge = deck_z(x, hw_edge) + 2.0
+            z_rim_in, z_floor = deck_z(x, hw_top) - FOREDECK_RIM_TILT, foredeck_z(x)
+            secs.append(np.array([[x, hw_edge, 2000.0], [x, hw_edge, z_edge], [x, hw_top, z_rim_in],
+                                  [x, hw_floor, z_floor], [x, -hw_floor, z_floor], [x, -hw_top, z_rim_in],
+                                  [x, -hw_edge, z_edge], [x, -hw_edge, 2000.0]]))
             x += 25.0
         return secs
     foredeck_well = loft(foredeck_sections())
@@ -493,7 +515,7 @@ def build_jouet_sheriff_v4():
     # 5. Assemble full boat (foredeck is sunk before the cabin is added, so the nose sits on it)
     # ------------------------------------------------------------------
     m_full = (mh - foredeck_well) + mk + cab
-    m_full = m_full - cockpit_well - footwell
+    m_full = m_full - cockpit_well - footwell - door_pocket
     m_full = m_full + fittings + cleat
     full_boat = to_watertight_trimesh(m_full)
     print(f"FULL BOAT V4 SOLID: Watertight={full_boat.is_watertight}, Volume={full_boat.volume:.1f} mm³")
