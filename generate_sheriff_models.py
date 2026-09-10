@@ -44,16 +44,17 @@ FOREDECK_RECESS_FWD = 160.0 # depth at the forward end of the recess
 FOREDECK_SLOPE_W = 150.0    # horizontal width of the slope from the rim down to the sunken deck
 FOREDECK_END     = 5550.0   # the recess closes in a V this far forward
 
-# Forward hatch (tinted acrylic, hinged, no frame) high on the forward slope, just ahead of the mast
-HATCH_X0, HATCH_X1 = 3850.0, 4150.0
+# Forward hatch (tinted acrylic, hinged, no frame) high on the forward slope; its aft edge
+# wraps ~50 mm over the roof crease (crease is at X_ROOF_FRONT + ROOF_NOSE_L on the centreline)
+HATCH_X0, HATCH_X1 = 3750.0, 4150.0
 HATCH_HALF_W     = 270.0
 HATCH_RAISE      = 15.0
 
-# Side windows (trapezoid, aluminium bezel, tinted glass): sit high on the wall and wrap
-# ~50 mm over the roof edge; both slanted edges are parallel to the raked bulkhead
+# Side windows (trapezoid, aluminium bezel, tinted glass) — nearly full wall height, fully on
+# the wall (they do not wrap onto the roof); both slanted edges are parallel to the raked bulkhead
 WIN_X_BOT        = (2400.0, 3100.0)
-WIN_Z_ABOVE_BASE = 90.0
-WIN_H            = 300.0
+WIN_Z_ABOVE_BASE = 45.0
+WIN_H            = 250.0
 WIN_SLANT        = BULKHEAD_RAKE
 WIN_X_TOP        = (WIN_X_BOT[0] + WIN_H * np.tan(WIN_SLANT), WIN_X_BOT[1] - WIN_H * np.tan(WIN_SLANT))
 WIN_FRAME_W      = 35.0
@@ -414,11 +415,12 @@ def build_jouet_sheriff_v4():
     hatch_col = mbox(HATCH_X0, HATCH_X1, -HATCH_HALF_W, HATCH_HALF_W, 0.0, 3000.0)
     cab = cab + (hatch_col ^ cabin_body(HATCH_RAISE))
 
-    # Walkway grooves along both roof edges: cut after the windows so a window bezel that
-    # wraps over the roof edge only stands on the rim, not in the groove
+    # Walkway grooves along both roof edges, from the aft edge right to the end of the roof:
+    # the loft continues into the nose, where the slope falls below the groove floor, so the
+    # groove ends exactly on the crease arc
     def groove_sections(sign):
         secs = []
-        for x in np.arange(x_roof_aft - 200.0, X_ROOF_FRONT + 151.0, 25.0):
+        for x in np.arange(x_roof_aft - 200.0, X_ROOF_FRONT + ROOF_NOSE_L + 101.0, 25.0):
             _, _, y_top, zrs = wall_geometry(x)
             y_in, y_out = y_top - WALKWAY_W, y_top - WALKWAY_RIM
             z0, z1 = zrs - WALKWAY_DEPTH, zrs + 300.0
