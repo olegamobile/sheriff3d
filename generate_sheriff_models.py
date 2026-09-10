@@ -19,10 +19,11 @@ CABIN_SIDE_H     = 340.0    # cabin side wall height above the deck at the wall 
 CABIN_ROOF_CAMBER = 25.0    # roof crown
 CABIN_MARGIN     = 150.0    # side-deck strip between sheer and cabin wall foot (= GUNWALE_W, so the
                             # cockpit coaming and the cabin wall are in one line)
-CABIN_Z_BOT      = 360.0    # cabin body extends down to here (below the seats, above the sill)
-# Aft corners: in plan view the cabin's aft end is a flat raked bulkhead with rounded corners whose
-# radius shrinks from AFT_CORNER_R at seat level to zero at the roof, so the bench's rounded
-# "shoulder" is one surface with the cabin side wall and the roof corners stay sharp.
+CABIN_Z_BOT      = 449.0    # cabin body extends down to here (just below the sill)
+# Aft end in plan view: a flat raked bulkhead between two "wings" that reach aft along the
+# coamings. Each wing ends in a CONCAVE quarter circle (centre in the cockpit) tangent to the
+# coaming and to the bulkhead, so each bench ends in a semicircular pocket. The wing radius
+# shrinks from AFT_CORNER_R at seat level to zero at the roof, blending into the flat wall.
 AFT_CORNER_R     = 450.0
 WALL_TUMBLEHOME  = np.radians(20.0)   # cabin walls lean inward
 SLOPE_ANGLE      = np.radians(32.0)   # forward slope of the coachroof (straight ahead)
@@ -69,7 +70,7 @@ WIN_GLASS_RECESS = 8.0
 
 # Companionway: large opening in the raked bulkhead, modelled as a deep pocket
 DOOR_HALF_W      = 350.0
-DOOR_Z0, DOOR_Z1 = 375.0, 1060.0
+DOOR_Z0, DOOR_Z1 = 465.0, 1060.0
 DOOR_RECESS      = 200.0
 
 # Mast step pad on the roof, a little aft of the crease
@@ -83,7 +84,7 @@ SEAT_Z           = 500.0    # horizontal seat plane
 FLOOR_Z          = 230.0    # horizontal footwell sole (must stay above the deck pin sockets)
 FOOTWELL_HW_AFT  = 330.0    # footwell half-width at the transom
 FOOTWELL_HW_FWD  = 500.0    # footwell half-width at the bulkhead
-SILL_Z           = 350.0    # bridge-deck sill in front of the bulkhead: the raked wall runs down to here
+SILL_Z           = 450.0    # sill in front of the bulkhead, 50 mm below the seats: the raked wall runs down to here
 
 # Foot-brace board lying flat on two posts along the footwell + transverse boom-vang beam
 POST_X           = (300.0, 2000.0)
@@ -403,30 +404,31 @@ def build_jouet_sheriff_v4():
     def x_bulkhead_at(z):
         return X_BULKHEAD + (z - z_deck_bulk) * np.tan(BULKHEAD_RAKE)
 
-    # Aft end of the cabin as a plan-view outline lofted in Z: raked flat bulkhead plus rounded
-    # corners whose radius goes from AFT_CORNER_R at seat level to ~0 at the roof.
+    # Aft end of the cabin as a plan-view outline lofted in Z: flat raked bulkhead between two
+    # wings that run aft along the coamings and end in concave quarter circles (centre in the
+    # cockpit), tangent to both the coaming and the bulkhead. Radius AFT_CORNER_R at seat level,
+    # ~0 at the roof. The outline is intersected with the cabin body, which supplies the roof
+    # and the wall inclination.
     z_roof_aft = roof_side_z(X_BULKHEAD + 300.0) + CABIN_ROOF_CAMBER
-    y_side_aft = beam(X_BULKHEAD + AFT_CORNER_R) - CABIN_MARGIN
-    x_aft_block_fwd = X_BULKHEAD + AFT_CORNER_R + 150.0
+    y_side_aft = beam(X_BULKHEAD) - CABIN_MARGIN + 30.0     # outside the wall foot: body governs
+    x_aft_block_fwd = X_BULKHEAD                              # well cut reaches this far forward
 
     def aft_block():
         secs = []
         for z in np.linspace(CABIN_Z_BOT, z_roof_aft + 80.0, 48):
             x_aft = x_bulkhead_at(z)
             r = max(2.0, AFT_CORNER_R * min(1.0, max(0.0, (z_roof_aft - z) / (z_roof_aft - SEAT_Z))))
-            cx, cy = x_aft + r, y_side_aft - r
-            pts = [(x_aft_block_fwd, y_side_aft)]
-            for ang in np.linspace(np.pi / 2, np.pi, 12):
+            cx, cy = x_aft - r, y_side_aft - r
+            pts = [(6200.0, y_side_aft)]
+            for ang in np.linspace(np.pi / 2, 0.0, 12):          # (x_aft-r, y_side) -> (x_aft, y_side-r)
                 pts.append((cx + r * np.cos(ang), cy + r * np.sin(ang)))
-            for ang in np.linspace(np.pi, 1.5 * np.pi, 12):
+            for ang in np.linspace(0.0, -np.pi / 2, 12):         # mirrored port wing
                 pts.append((cx + r * np.cos(ang), -cy + r * np.sin(ang)))
-            pts.append((x_aft_block_fwd, -y_side_aft))
+            pts.append((6200.0, -y_side_aft))
             secs.append(np.array([[px, py, z] for px, py in pts]))
         return loft(secs)
 
-    body = cabin_body(0.0)
-    fwd_part = body - mbox(-500.0, x_aft_block_fwd - 60.0, -3000.0, 3000.0, -1000.0, 4000.0)
-    cab = fwd_part + (aft_block() ^ body)
+    cab = aft_block() ^ cabin_body(0.0)
 
     # Side windows: raised trapezoid bezel + recessed tinted pane, both sides
     def win_prism(inset):
@@ -479,9 +481,9 @@ def build_jouet_sheriff_v4():
         t = (x - X_COCKPIT_AFT) / (X_BULKHEAD - X_COCKPIT_AFT)
         return FOOTWELL_HW_AFT + t * (FOOTWELL_HW_FWD - FOOTWELL_HW_AFT)
 
-    # Bench cut: full width inside the coaming, carried forward past the cabin's rounded aft
-    # corners; the cabin body (unioned afterwards) refills its own footprint, so the seats run
-    # right up to the rounded corner walls with no ledge.
+    # Bench cut: full width inside the coaming up to the bulkhead deck line; the cabin body
+    # (unioned afterwards) refills its own footprint including the aft wings, so each bench
+    # ends in a semicircular pocket flush with the coaming and the bulkhead.
     well_x = np.arange(X_COCKPIT_AFT, x_aft_block_fwd + 1.0, 40.0)
     cockpit_well = loft([rect_sec(x, beam(x) - GUNWALE_W + 1.0, SEAT_Z, 2500.0) for x in well_x])
 
