@@ -20,8 +20,7 @@ CABIN_ROOF_CAMBER = 25.0    # roof crown
 CABIN_MARGIN     = 120.0    # side-deck strip between sheer and cabin wall (same level as the gunwale)
 WALL_TUMBLEHOME  = np.radians(20.0)   # cabin walls lean inward
 SLOPE_ANGLE      = np.radians(32.0)   # forward slope of the coachroof (straight ahead)
-BULKHEAD_RAKE    = np.radians(30.0)   # aft bulkhead leans forward, parallel to the window's aft edge
-ROOF_AFT_R       = 150.0    # plan-view radius of the aft roof corners
+BULKHEAD_RAKE    = np.radians(30.0)   # aft bulkhead: one flat plane leaning forward, parallel to the window's aft edge
 # Rounded nose: the flat roof ends in a half-ellipse in plan view (semi-axis ROOF_NOSE_L
 # along X from X_ROOF_FRONT, half roof width across). The front face falls forward at
 # SLOPE_ANGLE from that crease, so both the crease and the foot line are arcs; the
@@ -29,11 +28,12 @@ ROOF_AFT_R       = 150.0    # plan-view radius of the aft roof corners
 ROOF_NOSE_L      = 400.0
 NOSE_CORNER_BLEND = 220.0
 
-# Slightly recessed walkways along both roof edges, full roof length, with a small lip outboard
-WALKWAY_W        = 250.0
+# Walkways: a shallow groove along each roof edge, running out through the aft edge and
+# ending where the roof edge starts curving into the nose; the roof outboard of the groove
+# stays at roof level (WALKWAY_RIM wide)
+WALKWAY_W        = 220.0
 WALKWAY_DEPTH    = 20.0
-WALKWAY_LIP_W    = 40.0
-WALKWAY_LIP_H    = 15.0     # lip stands this much above the roof edge line
+WALKWAY_RIM      = 60.0
 
 # Sunken foredeck: a narrow rim at the sheer, tilted slightly inboard, then a slope down to
 # the sunken deck; shallow next to the cabin, deeper towards the bow (planar sunken deck)
@@ -332,7 +332,7 @@ def build_jouet_sheriff_v4():
         t = (x - X_ROOF_FRONT) / (FOREDECK_END - X_ROOF_FRONT)
         return fd_z0 + t * (fd_z1 - fd_z0)
 
-    # X where the raked bulkhead meets the roof edge: the aft roof corners are rounded from here
+    # X where the raked bulkhead meets the roof edge
     x_roof_aft = X_BULKHEAD + (roof_side_aft + CABIN_ROOF_CAMBER - z_deck_bulk) * np.tan(BULKHEAD_RAKE)
 
     def wall_geometry(x, d=0.0):
@@ -343,8 +343,6 @@ def build_jouet_sheriff_v4():
         zrs = roof_side_z(x) + d
         h_wall = max(0.0, zrs - z_base)
         y_top = y_base - h_wall * np.tan(WALL_TUMBLEHOME)
-        dx_aft = min(ROOF_AFT_R, max(0.0, x_roof_aft + ROOF_AFT_R - x))
-        y_top -= ROOF_AFT_R - np.sqrt(ROOF_AFT_R ** 2 - dx_aft ** 2)
         return y_base, z_base, max(y_top, 8.0), zrs
 
     roof_nose_hw = wall_geometry(X_ROOF_FRONT)[2]       # roof half-width at the crease
@@ -380,9 +378,7 @@ def build_jouet_sheriff_v4():
     # the nose is fully below the body bottom this far forward
     x_nose_end = X_ROOF_FRONT + ROOF_NOSE_L + \
         (roof_side_front + CABIN_ROOF_CAMBER - (deck_z(X_ROOF_FRONT, 0.0) - 180.0)) / np.tan(SLOPE_ANGLE)
-    cab_x = np.concatenate([np.arange(X_BULKHEAD - 50.0, x_roof_aft, 50.0),
-                            np.arange(x_roof_aft, x_roof_aft + ROOF_AFT_R + 1.0, 15.0),
-                            np.arange(x_roof_aft + ROOF_AFT_R + 50.0, X_ROOF_FRONT, 50.0), [X_ROOF_FRONT],
+    cab_x = np.concatenate([np.arange(X_BULKHEAD - 50.0, X_ROOF_FRONT, 50.0), [X_ROOF_FRONT],
                             np.arange(X_ROOF_FRONT + 25.0, x_nose_end + 50.0, 25.0)])
 
     def cabin_body(d=0.0):
@@ -397,25 +393,6 @@ def build_jouet_sheriff_v4():
         return to_manifold(cut)
 
     cab = cabin_body(0.0) - rake_cut(X_BULKHEAD)
-
-    # Recessed walkways along both roof edges (full length), leaving a lip outboard,
-    # plus a small rail on top of that lip
-    def walkway_sections(sign, lip=False):
-        secs = []
-        for x in np.arange(x_roof_aft - 30.0, X_ROOF_FRONT + 61.0, 25.0):
-            _, _, y_top, zrs = wall_geometry(x)
-            if lip:
-                y_in, y_out = y_top - WALKWAY_LIP_W, y_top + 4.0
-                z0, z1 = zrs - 80.0, zrs + WALKWAY_LIP_H
-            else:
-                y_in, y_out = y_top - WALKWAY_W, y_top - WALKWAY_LIP_W
-                z0, z1 = zrs - WALKWAY_DEPTH, zrs + 300.0
-            secs.append(np.array([[x, sign * y_in, z0], [x, sign * y_in, z1],
-                                  [x, sign * y_out, z1], [x, sign * y_out, z0]]))
-        return secs
-    cab = cab - loft(walkway_sections(+1)) - loft(walkway_sections(-1))
-    cab = cab + loft(walkway_sections(+1, lip=True)) + loft(walkway_sections(-1, lip=True))
-    cab = cab - rake_cut(X_BULKHEAD)
 
     # Side windows: raised trapezoid bezel + recessed tinted pane, both sides
     def win_prism(inset):
@@ -437,7 +414,20 @@ def build_jouet_sheriff_v4():
     hatch_col = mbox(HATCH_X0, HATCH_X1, -HATCH_HALF_W, HATCH_HALF_W, 0.0, 3000.0)
     cab = cab + (hatch_col ^ cabin_body(HATCH_RAISE))
 
-    # Mast step pad at the forward edge of the flat roof
+    # Walkway grooves along both roof edges: cut after the windows so a window bezel that
+    # wraps over the roof edge only stands on the rim, not in the groove
+    def groove_sections(sign):
+        secs = []
+        for x in np.arange(x_roof_aft - 200.0, X_ROOF_FRONT + 151.0, 25.0):
+            _, _, y_top, zrs = wall_geometry(x)
+            y_in, y_out = y_top - WALKWAY_W, y_top - WALKWAY_RIM
+            z0, z1 = zrs - WALKWAY_DEPTH, zrs + 300.0
+            secs.append(np.array([[x, sign * y_in, z0], [x, sign * y_in, z1],
+                                  [x, sign * y_out, z1], [x, sign * y_out, z0]]))
+        return secs
+    cab = cab - loft(groove_sections(+1)) - loft(groove_sections(-1))
+
+    # Mast step pad on the flat roof
     mast_pad = trimesh.creation.cylinder(radius=MAST_PAD_R, height=60.0)
     mast_pad.apply_translation([MAST_X, 0.0, roof_side_z(MAST_X) + CABIN_ROOF_CAMBER + 10.0])
     cab = cab + to_manifold(mast_pad)
