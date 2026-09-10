@@ -34,12 +34,10 @@ BULKHEAD_RAKE    = np.radians(30.0)   # aft bulkhead: one flat plane leaning for
 ROOF_NOSE_L      = 400.0
 NOSE_CORNER_BLEND = 220.0
 
-# Walkways: a shallow groove along each roof edge, running out through the aft edge and
-# ending on the nose crease. The rim outboard of the groove is trapezoidal: outer face is
-# the cabin wall, WALKWAY_RIM wide flat top at roof level, 45 deg slope down into the groove.
-WALKWAY_W        = 220.0
-WALKWAY_DEPTH    = 20.0
-WALKWAY_RIM      = 30.0
+# Walkways: stepped terrace along each roof edge (no outer rim, flat walkway shelf,
+# inboard vertical step up to central raised roof)
+WALKWAY_W        = 190.0
+WALKWAY_DEPTH    = 30.0
 
 # Sunken foredeck: a narrow rim at the sheer, tilted slightly inboard, then a slope down to
 # the sunken deck; shallow next to the cabin, deeper towards the bow (planar sunken deck)
@@ -50,11 +48,11 @@ FOREDECK_RECESS_FWD = 160.0 # depth at the forward end of the recess
 FOREDECK_SLOPE_W = 150.0    # horizontal width of the slope from the rim down to the sunken deck
 FOREDECK_END     = 5550.0   # the recess closes in a V this far forward
 
-# Forward hatch (tinted acrylic, hinged, no frame) high on the forward slope; its aft edge
+# Forward hatch (tinted acrylic, hinged, no frame) on the rounded slope; its aft edge
 # wraps ~50 mm over the roof crease (crease is at X_ROOF_FRONT + ROOF_NOSE_L on the centreline)
 HATCH_X0, HATCH_X1 = 3750.0, 4150.0
 HATCH_HALF_W     = 270.0
-HATCH_RAISE      = 15.0
+HATCH_RAISE      = 14.0
 
 # Side windows (trapezoid, aluminium bezel, tinted glass) — nearly full wall height, fully on
 # the wall (they do not wrap onto the roof); both slanted edges are parallel to the raked bulkhead
@@ -76,24 +74,18 @@ DOOR_RECESS      = 200.0
 MAST_X           = 3560.0
 MAST_PAD_R       = 70.0
 
-# Cockpit: benches and footwell run from the transom wall to the bulkhead (no aft seat)
+# Cockpit: benches and footwell run to the aft deck (250 mm deck before transom)
 GUNWALE_W        = 150.0    # flat strip along the sheer, its inner face is the coaming
-X_COCKPIT_AFT    = 80.0     # transom wall thickness
+X_COCKPIT_AFT    = 250.0    # leaves 250 mm aft deck behind cockpit seats
 SEAT_Z           = 500.0    # horizontal seat plane
 FLOOR_Z          = 230.0    # horizontal footwell sole (must stay above the deck pin sockets)
-FOOTWELL_HW_AFT  = 330.0    # footwell half-width at the transom
+FOOTWELL_HW_AFT  = 330.0    # footwell half-width at the aft end
 FOOTWELL_HW_FWD  = 500.0    # footwell half-width at the bulkhead
 SILL_Z           = 450.0    # sill in front of the bulkhead, 50 mm below the seats: the raked wall runs down to here
 
-# Foot-brace board lying flat on two posts along the footwell + transverse boom-vang beam
-POST_X           = (300.0, 2000.0)
-POST_W           = 60.0
-BOARD_X          = (200.0, 2100.0)
-BOARD_W          = 55.0     # real board is 5-6 cm wide
-BOARD_Z          = (390.0, 430.0)
-BEAM_X           = 1650.0
-BEAM_W           = 60.0
-BEAM_Z           = (420.0, 480.0)
+# Starboard locker lid on the bench
+LOCKER_X0, LOCKER_X1 = 750.0, 1550.0
+LOCKER_Y0, LOCKER_Y1 = 440.0, 780.0
 
 # Mooring cleat, athwartships, in the middle of the foredeck
 CLEAT_X          = 5000.0
@@ -480,24 +472,43 @@ def build_jouet_sheriff_v4():
     cab = cab + (win_prism(0.0) ^ cabin_body(WIN_FRAME_RAISE))
     cab = cab - (win_prism(WIN_FRAME_W) - cabin_body(-WIN_GLASS_RECESS))
 
-    # Forward hatch: flat tinted acrylic plate lying on the slope
-    hatch_col = mbox(HATCH_X0, HATCH_X1, -HATCH_HALF_W, HATCH_HALF_W, 0.0, 3000.0)
+    # Forward hatch: frameless curved acrylic sheet on the slope, top edge wrapping ~50 mm onto the roof
+    def rounded_box(x0, x1, y0, y1, z0, z1, r=40.0):
+        c1 = trimesh.creation.cylinder(radius=r, height=z1-z0)
+        c1.apply_translation([x0 + r, y0 + r, (z0+z1)/2])
+        c2 = trimesh.creation.cylinder(radius=r, height=z1-z0)
+        c2.apply_translation([x1 - r, y0 + r, (z0+z1)/2])
+        c3 = trimesh.creation.cylinder(radius=r, height=z1-z0)
+        c3.apply_translation([x1 - r, y1 - r, (z0+z1)/2])
+        c4 = trimesh.creation.cylinder(radius=r, height=z1-z0)
+        c4.apply_translation([x0 + r, y1 - r, (z0+z1)/2])
+        bx = trimesh.creation.box([x1 - x0 - 2*r, y1 - y0, z1 - z0])
+        bx.apply_translation([(x0+x1)/2, (y0+y1)/2, (z0+z1)/2])
+        by = trimesh.creation.box([x1 - x0, y1 - y0 - 2*r, z1 - z0])
+        by.apply_translation([(x0+x1)/2, (y0+y1)/2, (z0+z1)/2])
+        return to_manifold(c1) + to_manifold(c2) + to_manifold(c3) + to_manifold(c4) + to_manifold(bx) + to_manifold(by)
+
+    hatch_col = rounded_box(HATCH_X0, HATCH_X1, -HATCH_HALF_W, HATCH_HALF_W, 0.0, 3000.0, r=40.0)
     cab = cab + (hatch_col ^ cabin_body(HATCH_RAISE))
 
-    # Walkway grooves along both roof edges, from the aft edge right to the end of the roof:
-    # the loft continues into the nose, where the slope falls below the groove floor, so the
-    # groove ends exactly on the crease arc
-    def groove_sections(sign):
+    # Stepped walkway terraces along both roof edges: clean step down to a wide flat walkway shelf
+    # (no outer rim, outer edge follows cabin wall, inner edge steps up to central raised roof)
+    def walkway_sections(sign):
         secs = []
         for x in np.arange(x_roof_aft - 200.0, X_ROOF_FRONT + ROOF_NOSE_L + 101.0, 25.0):
             _, _, y_top, zrs = wall_geometry(x)
-            y_in, y_rim = y_top - WALKWAY_W, y_top - WALKWAY_RIM
-            z0, z1 = zrs - WALKWAY_DEPTH, zrs + 300.0
-            # inner wall vertical, floor flat, outer side a 45 deg slope up to the rim top
-            secs.append(np.array([[x, sign * y_in, z0], [x, sign * y_in, z1], [x, sign * y_rim, z1],
-                                  [x, sign * y_rim, zrs], [x, sign * (y_rim - WALKWAY_DEPTH), z0]]))
+            y_in = y_top - WALKWAY_W
+            y_out = y_top + 150.0  # well outside the cabin wall
+            z_floor = zrs - WALKWAY_DEPTH
+            z_top = zrs + 400.0
+            secs.append(np.array([
+                [x, sign * y_in, z_top],
+                [x, sign * y_in, z_floor],
+                [x, sign * y_out, z_floor],
+                [x, sign * y_out, z_top]
+            ]))
         return secs
-    cab = cab - loft(groove_sections(+1)) - loft(groove_sections(-1))
+    cab = cab - loft(walkway_sections(+1)) - loft(walkway_sections(-1))
 
     # Mast step pad on the flat roof
     mast_pad = trimesh.creation.cylinder(radius=MAST_PAD_R, height=60.0)
@@ -516,14 +527,11 @@ def build_jouet_sheriff_v4():
         t = (x - X_COCKPIT_AFT) / (X_BULKHEAD - X_COCKPIT_AFT)
         return FOOTWELL_HW_AFT + t * (FOOTWELL_HW_FWD - FOOTWELL_HW_AFT)
 
-    # Bench cut: full width inside the coaming up to the bulkhead deck line; the cabin body
-    # (unioned afterwards) refills its own footprint including the aft wings, so each bench
-    # ends in a semicircular pocket flush with the coaming and the bulkhead.
+    # Bench cut: full width inside the coaming up to the bulkhead deck line
     well_x = np.arange(X_COCKPIT_AFT, x_aft_block_fwd + 1.0, 40.0)
     cockpit_well = loft([rect_sec(x, beam(x) - GUNWALE_W + 1.0, SEAT_Z, 2500.0) for x in well_x])
 
-    # Footwell ends where the raked bulkhead reaches the sill level; between there and the
-    # bulkhead a sill SILL_Z high remains, so the raked wall continues below the seats
+    # Footwell ends where the raked bulkhead reaches the sill level
     x_sill = x_bulkhead_at(SILL_Z)
     footwell = loft([rect_sec(X_COCKPIT_AFT, footwell_hw(X_COCKPIT_AFT), FLOOR_Z, SEAT_Z + 100.0),
                      rect_sec(x_sill, footwell_hw(x_sill), FLOOR_Z, SEAT_Z + 100.0)])
@@ -553,15 +561,46 @@ def build_jouet_sheriff_v4():
         return secs
     foredeck_well = loft(foredeck_sections())
 
-    # Foot-brace board lying flat on two posts + transverse vang beam
-    fittings = None
-    for px in POST_X:
-        post = mbox(px - POST_W/2, px + POST_W/2, -POST_W/2, POST_W/2, FLOOR_Z - 20.0, BOARD_Z[1] - 10.0)
-        fittings = post if fittings is None else fittings + post
-    board = mbox(BOARD_X[0], BOARD_X[1], -BOARD_W/2, BOARD_W/2, BOARD_Z[0], BOARD_Z[1])
-    beam_hw = footwell_hw(BEAM_X) + 40.0
-    vang_beam = mbox(BEAM_X - BEAM_W/2, BEAM_X + BEAM_W/2, -beam_hw, beam_hw, BEAM_Z[0], BEAM_Z[1])
-    fittings = fittings + board + vang_beam
+    # Starboard locker lid on the bench: subtle raised lid plate
+    locker_lid = mbox(LOCKER_X0, LOCKER_X1, LOCKER_Y0, LOCKER_Y1, SEAT_Z, SEAT_Z + 2.5)
+
+    # Bow pulpit (stainless steel railing at the bow)
+    def make_tube(p0, p1, r=18.0):
+        p0, p1 = np.array(p0, dtype=float), np.array(p1, dtype=float)
+        vec = p1 - p0
+        length = np.linalg.norm(vec)
+        if length < 1e-3:
+            return None
+        cyl = trimesh.creation.cylinder(radius=r, height=length)
+        z_axis = np.array([0, 0, 1.0])
+        v_norm = vec / length
+        axis = np.cross(z_axis, v_norm)
+        axis_len = np.linalg.norm(axis)
+        if axis_len > 1e-6:
+            angle = np.arccos(np.clip(np.dot(z_axis, v_norm), -1.0, 1.0))
+            rot = trimesh.transformations.rotation_matrix(angle, axis / axis_len)
+            cyl.apply_transform(rot)
+        elif v_norm[2] < 0:
+            cyl.apply_transform(trimesh.transformations.rotation_matrix(np.pi, [1, 0, 0]))
+        cyl.apply_translation((p0 + p1) / 2.0)
+        return to_manifold(cyl)
+
+    z_leg_aft = deck_z(5000.0, 490.0)
+    z_leg_fwd = deck_z(5800.0, 160.0)
+    p_aft_s = [5000.0, 490.0, z_leg_aft]
+    p_aft_p = [5000.0, -490.0, z_leg_aft]
+    p_top_aft_s = [5000.0, 470.0, z_leg_aft + 420.0]
+    p_top_aft_p = [5000.0, -470.0, z_leg_aft + 420.0]
+    p_fwd_s = [5800.0, 160.0, z_leg_fwd]
+    p_fwd_p = [5800.0, -160.0, z_leg_fwd]
+    p_top_fwd_s = [5800.0, 150.0, z_leg_fwd + 410.0]
+    p_top_fwd_p = [5800.0, -150.0, z_leg_fwd + 410.0]
+    p_apex = [6060.0, 0.0, z_leg_fwd + 430.0]
+
+    pulpit = (make_tube(p_aft_s, p_top_aft_s) + make_tube(p_aft_p, p_top_aft_p) +
+              make_tube(p_fwd_s, p_top_fwd_s) + make_tube(p_fwd_p, p_top_fwd_p) +
+              make_tube(p_top_aft_s, p_top_fwd_s) + make_tube(p_top_aft_p, p_top_fwd_p) +
+              make_tube(p_top_fwd_s, p_apex) + make_tube(p_top_fwd_p, p_apex))
 
     # Mooring cleat, athwartships, in the middle of the sunken foredeck
     zc = foredeck_z(CLEAT_X)
@@ -571,13 +610,11 @@ def build_jouet_sheriff_v4():
     # ------------------------------------------------------------------
     # 5. Assemble full boat (foredeck is sunk before the cabin is added, so the nose sits on it)
     # ------------------------------------------------------------------
-    # Cut the hull first, then add the cabin (its rounded aft end refills its own footprint down
-    # to the seats), then cut the companionway pocket through cabin and hull together.
     m_full = (mh - foredeck_well - cockpit_well - footwell - sill_cut) + mk + cab
     m_full = m_full - door_pocket
-    m_full = m_full + fittings + cleat
+    m_full = m_full + locker_lid + cleat + pulpit
     full_boat = to_watertight_trimesh(m_full)
-    print(f"FULL BOAT V4 SOLID: Watertight={full_boat.is_watertight}, Volume={full_boat.volume:.1f} mm³")
+    print(f"FULL BOAT V5 SOLID: Watertight={full_boat.is_watertight}, Volume={full_boat.volume:.1f} mm³")
 
     # 6. Waterline Model (DWL Z=0 cut with flat bottom)
     cut_box = trimesh.creation.box([14000.0, 6000.0, 2500.0])
@@ -624,14 +661,15 @@ def build_jouet_sheriff_v4():
     rudder_solid = to_watertight_trimesh(m_rudder)
     print(f"Rudder Solid: Watertight={rudder_solid.is_watertight}")
 
-    # 9. Rigging (unchanged)
+    # 9. Rigging: positioned on the coachroof mast step pad
+    mast_base_z = roof_side_z(MAST_X) + CABIN_ROOF_CAMBER + 15.0
     mast_cyl = trimesh.creation.cylinder(radius=45.0, height=6800.0)
-    mast_cyl.apply_translation([0.0, 0.0, 3400.0])
+    mast_cyl.apply_translation([MAST_X, 0.0, mast_base_z + 3400.0])
     boom_cyl = trimesh.creation.cylinder(radius=35.0, height=2700.0)
     boom_cyl.apply_transform(trimesh.transformations.rotation_matrix(np.pi/2, [0, 1, 0]))
-    boom_cyl.apply_translation([-1350.0, 0.0, 600.0])
+    boom_cyl.apply_translation([MAST_X - 1350.0, 0.0, mast_base_z + 750.0])
     spreader = trimesh.creation.box([40.0, 950.0, 30.0])
-    spreader.apply_translation([0.0, 0.0, 3200.0])
+    spreader.apply_translation([MAST_X, 0.0, mast_base_z + 3200.0])
     m_rig = to_manifold(mast_cyl) + to_manifold(boom_cyl) + to_manifold(spreader)
     rigging_solid = to_watertight_trimesh(m_rig)
     print(f"Rigging Solid: Watertight={rigging_solid.is_watertight}")
