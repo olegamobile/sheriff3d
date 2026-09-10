@@ -19,25 +19,31 @@ CABIN_SIDE_H     = 340.0    # cabin side wall height above the deck at the wall 
 CABIN_ROOF_CAMBER = 25.0    # roof crown
 CABIN_MARGIN     = 120.0    # side-deck strip between sheer and cabin wall (same level as the gunwale)
 WALL_TUMBLEHOME  = np.radians(20.0)   # cabin walls lean inward
-SLOPE_ANGLE      = np.radians(25.0)   # forward slope of the coachroof
+SLOPE_ANGLE      = np.radians(32.0)   # forward slope of the coachroof (straight ahead)
 BULKHEAD_RAKE    = np.radians(8.0)    # aft bulkhead leans forward at the top
 ROOF_AFT_R       = 150.0    # plan-view radius of the aft roof corners
-# Forward of X_ROOF_FRONT the whole cabin (roof crease and wall foot) narrows along a
-# quarter-ellipse in plan view, so the entire front face is one curved sloping surface.
+# Rounded nose: the flat roof ends in a half-ellipse in plan view (semi-axis ROOF_NOSE_L
+# along X from X_ROOF_FRONT, half roof width across). The front face falls forward at
+# SLOPE_ANGLE from that crease, so both the crease and the foot line are arcs; the
+# corners between the front face and the side walls are blended over NOSE_CORNER_BLEND.
+ROOF_NOSE_L      = 400.0
+NOSE_CORNER_BLEND = 220.0
 
 # Slightly recessed walkways along both roof edges
 WALKWAY_W        = 250.0
 WALKWAY_DEPTH    = 20.0
 
-# Sunken foredeck: the gunwale strip stays at sheer level, the deck inside drops down
+# Sunken foredeck: the gunwale strip stays at sheer level, the deck inside drops down;
+# shallow next to the cabin, deeper towards the bow (planar sunken deck)
 FOREDECK_RIM     = 150.0    # width of the strip along the sheer
-FOREDECK_RECESS  = 120.0    # depth below the centreline deck
-FOREDECK_SLOPE_W = 100.0    # horizontal width of the slope from the rim down to the sunken deck
+FOREDECK_RECESS_AFT = 70.0  # depth below the centreline deck at the cabin
+FOREDECK_RECESS_FWD = 160.0 # depth at the forward end of the recess
+FOREDECK_SLOPE_W = 150.0    # horizontal width of the slope from the rim down to the sunken deck
 FOREDECK_END     = 5550.0   # the recess closes in a V this far forward
 
-# Forward hatch (tinted acrylic, hinged, no frame) on the forward slope
-HATCH_X0, HATCH_X1 = 3440.0, 3860.0
-HATCH_HALF_W     = 300.0
+# Forward hatch (tinted acrylic, hinged, no frame) high on the forward slope, just ahead of the mast
+HATCH_X0, HATCH_X1 = 3850.0, 4150.0
+HATCH_HALF_W     = 270.0
 HATCH_RAISE      = 15.0
 
 # Side windows (trapezoid, aluminium bezel, tinted glass) — nearly full wall height
@@ -54,8 +60,8 @@ DOOR_HALF_W      = 280.0
 DOOR_Z0, DOOR_Z1 = 550.0, 1030.0
 DOOR_RECESS      = 12.0
 
-# Mast step pad
-MAST_X           = 3330.0
+# Mast step pad, right at the roof crease
+MAST_X           = 3690.0
 MAST_PAD_R       = 70.0
 
 # Cockpit: benches and footwell run from the transom wall to the bulkhead (no aft seat)
@@ -311,21 +317,18 @@ def build_jouet_sheriff_v4():
     roof_side_front = roof_side_aft + roof_k * (X_ROOF_FRONT - X_BULKHEAD)
 
     def roof_side_z(x):
-        if x <= X_ROOF_FRONT:
-            return roof_side_aft + roof_k * (x - X_BULKHEAD)
-        return roof_side_front - (x - X_ROOF_FRONT) * np.tan(SLOPE_ANGLE)
+        """Roof edge line (linear, parallel to the sheer chord); the nose falls away from it."""
+        return roof_side_aft + roof_k * (x - X_BULKHEAD)
+
+    fd_z0 = deck_z(X_ROOF_FRONT, 0.0) - FOREDECK_RECESS_AFT
+    fd_z1 = deck_z(FOREDECK_END, 0.0) - FOREDECK_RECESS_FWD
 
     def foredeck_z(x):
-        return deck_z(x, 0.0) - FOREDECK_RECESS
-
-    # X where the slope reaches the sunken foredeck: end of the rounded nose
-    x_nose_end = X_ROOF_FRONT
-    while roof_side_z(x_nose_end) > foredeck_z(x_nose_end) and x_nose_end < 5500.0:
-        x_nose_end += 1.0
-    nose_len = x_nose_end - X_ROOF_FRONT
+        t = (x - X_ROOF_FRONT) / (FOREDECK_END - X_ROOF_FRONT)
+        return fd_z0 + t * (fd_z1 - fd_z0)
 
     def wall_geometry(x, d=0.0):
-        """(y_base, z_base, y_top, z_roof_side) of the cabin wall at station x."""
+        """(y_base, z_base, y_top, z_roof_side) of the cabin wall at station x (flat-roof part)."""
         b = beam(x)
         y_base = b - CABIN_MARGIN + d
         dx_aft = min(ROOF_AFT_R, max(0.0, X_BULKHEAD + ROOF_AFT_R - x))
@@ -334,28 +337,44 @@ def build_jouet_sheriff_v4():
         zrs = roof_side_z(x) + d
         h_wall = max(0.0, zrs - z_base)
         y_top = y_base - h_wall * np.tan(WALL_TUMBLEHOME)
-        if x > X_ROOF_FRONT:
-            # Rounded nose: the whole front (wall foot and roof crease) follows a quarter-ellipse
-            t = min(1.0, (x - X_ROOF_FRONT) / nose_len)
-            f = np.sqrt(max(0.0025, 1.0 - t * t))
-            y_base *= f
-            y_top *= f
-        return max(y_base, 15.0), z_base, max(y_top, 8.0), zrs
+        return y_base, z_base, max(y_top, 8.0), zrs
 
-    def cabin_section(x, d=0.0):
-        """Closed cross-section of the coachroof body, offset outward by d."""
+    roof_nose_hw = wall_geometry(X_ROOF_FRONT)[2]       # roof half-width at the crease
+    wall_slope = np.pi / 2 - WALL_TUMBLEHOME             # wall angle from horizontal
+    tan_wall = np.tan(wall_slope)
+
+    def smooth_min(a, b, k):
+        """Polynomial smooth minimum: rounds the crease between two surfaces over ~k."""
+        h = max(k - abs(a - b), 0.0) / k
+        return min(a, b) - h * h * k * 0.25
+
+    def cabin_section(x, d=0.0, n_half=41):
+        """Closed cross-section of the coachroof body, offset outward by d.
+        Top surface = min(cambered roof, blend(inclined side wall, front slope))."""
         y_base, z_base, y_top, zrs = wall_geometry(x, d)
         z_bot = z_base - 180.0
-        zrs = max(zrs, z_bot + 10.0)
-        ys = np.linspace(y_top, 0.0, 6)
-        zs = zrs + CABIN_ROOF_CAMBER * (1.0 - (ys / max(y_top, 1.0)) ** 2)
+        dx = max(0.0, x - X_ROOF_FRONT)
+        a_r, b_r = ROOF_NOSE_L + d, roof_nose_hw + d
+        ys = np.linspace(y_base, 0.0, n_half)
+        zs = []
+        for y in ys:
+            z_roof = zrs + CABIN_ROOF_CAMBER * (1.0 - (y / max(y_top, 1.0)) ** 2)
+            z_wall = z_base + (y_base - y) * tan_wall
+            # crease of the front face at this y (half-ellipse), slope falls forward of it
+            x_crease = a_r * np.sqrt(max(0.0, 1.0 - (y / b_r) ** 2))
+            z_slope = z_roof - max(0.0, dx - x_crease) * np.tan(SLOPE_ANGLE)
+            z = min(z_roof, smooth_min(z_wall, z_slope, NOSE_CORNER_BLEND))
+            zs.append(max(z, z_bot + 5.0))
         stbd = [(x, y_base, z_bot)] + [(x, yy, zz) for yy, zz in zip(ys, zs)]
         port = [(x, -yy, zz) for yy, zz in zip(ys[::-1][1:], zs[::-1][1:])] + [(x, -y_base, z_bot)]
         return np.array(stbd + port)
 
+    # the nose is fully below the body bottom this far forward
+    x_nose_end = X_ROOF_FRONT + ROOF_NOSE_L + \
+        (roof_side_front + CABIN_ROOF_CAMBER - (deck_z(X_ROOF_FRONT, 0.0) - 180.0)) / np.tan(SLOPE_ANGLE)
     cab_x = np.concatenate([np.arange(X_BULKHEAD - 50.0, X_BULKHEAD + ROOF_AFT_R + 1.0, 15.0),
                             np.arange(X_BULKHEAD + ROOF_AFT_R + 50.0, X_ROOF_FRONT, 50.0), [X_ROOF_FRONT],
-                            np.arange(X_ROOF_FRONT + 25.0, x_nose_end + 60.0, 25.0)])
+                            np.arange(X_ROOF_FRONT + 25.0, x_nose_end + 50.0, 25.0)])
 
     def cabin_body(d=0.0):
         return loft([cabin_section(x, d) for x in cab_x])
