@@ -66,12 +66,18 @@ assert mesh.is_watertight == True
 
 ## 4. Исходные данные и чертежи в репозитории
 
+- **`real_photos/`** (🔥 **Самое важное для доработки палубы!**):
+  - Реальные фотографии конкретной лодки пользователя, загруженные в репозиторий:
+    - `real_photos/photo_2026-09-10_15-19-13.jpg`
+    - `real_photos/photo_2026-09-10_15-19-28.jpg`
+    - `real_photos/photo_2026-09-10_15-19-32.jpg`
+  - Используйте эти фотографии для сверки формы сходного люка, носового скоса, закруглений комингсов и палубных деталей!
 - **`extracted_pdf_assets/Bateaux_oct69/`**:
   - `lines_plan_oriented.png` — Теоретический чертеж (Plan de formes: проекции «Корпус», «Полуширота», «Бок», шпангоуты 0..10).
   - `arrangement_plan_oriented.png` — План палубы и внутреннего обустройства.
   - `annotated_profile.png`, `annotated_half_breadth.png`, `annotated_body_plan.png`.
 - **`downloaded_assets/assets/photos/`**:
-  - Архивные фотографии лодок (`radesirade.jpg`, `port_RT_pont.jpg`, `port_RT_Arriere.jpg` и др.).
+  - Архивные фотографии других лодок серии (`ladesirade.jpg`, `port_RT_pont.jpg`, `port_RT_Arriere.jpg` и др.).
 - **`chez_downloads/`**:
   - Оригинальные руководства пользователя и чертежи руля (`plan_safran_gunnar.wmf`, `manuel.PDF`).
 
