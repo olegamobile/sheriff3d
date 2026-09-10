@@ -59,7 +59,7 @@ HATCH_RAISE      = 15.0
 # Side windows (trapezoid, aluminium bezel, tinted glass) — nearly full wall height, fully on
 # the wall (they do not wrap onto the roof); both slanted edges are parallel to the raked bulkhead
 WIN_X_BOT        = (2400.0, 3100.0)
-WIN_Z_ABOVE_BASE = 45.0
+WIN_TOP_MARGIN   = 45.0     # from the roof edge line down to the window top (edges parallel to the roof)
 WIN_H            = 250.0
 WIN_SLANT        = BULKHEAD_RAKE
 WIN_X_TOP        = (WIN_X_BOT[0] + WIN_H * np.tan(WIN_SLANT), WIN_X_BOT[1] - WIN_H * np.tan(WIN_SLANT))
@@ -433,13 +433,18 @@ def build_jouet_sheriff_v4():
 
     # Side windows: raised trapezoid bezel + recessed tinted pane, both sides
     def win_prism(inset):
-        zb = deck_z(2800.0, beam(2800.0) - CABIN_MARGIN) + WIN_Z_ABOVE_BASE + inset
-        zt = zb + WIN_H - 2 * inset
+        """Trapezoid window outline; top and bottom edges run parallel to the roof edge line."""
+        def z_top(x):
+            return roof_side_z(x) - WIN_TOP_MARGIN - inset
+        def z_bot(x):
+            return z_top(x) - WIN_H + 2 * inset
+        xb0, xb1 = WIN_X_BOT[0] + inset, WIN_X_BOT[1] - inset
+        xt0, xt1 = WIN_X_TOP[0] + inset * 0.6, WIN_X_TOP[1] - inset * 0.6
         poly = np.array([
-            [WIN_X_BOT[0] + inset, zb],
-            [WIN_X_BOT[1] - inset, zb],
-            [WIN_X_TOP[1] - inset * 0.6, zt],
-            [WIN_X_TOP[0] + inset * 0.6, zt],
+            [xb0, z_bot(xb0)],
+            [xb1, z_bot(xb1)],
+            [xt1, z_top(xt1)],
+            [xt0, z_top(xt0)],
         ])
         sec = lambda y: np.array([[px, y, pz] for px, pz in poly])
         return loft([sec(-2500.0), sec(2500.0)])
