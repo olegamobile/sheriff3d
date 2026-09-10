@@ -17,8 +17,7 @@ X_BULKHEAD       = 2200.0   # aft cabin bulkhead at deck level
 X_ROOF_FRONT     = 3400.0   # roof / forward-slope crease (mast stands just aft of it)
 CABIN_SIDE_H     = 340.0    # cabin side wall height above the deck at the wall base
 CABIN_ROOF_CAMBER = 25.0    # roof crown
-CABIN_MARGIN     = 150.0    # side-deck strip between sheer and cabin wall foot (= GUNWALE_W, so the
-                            # cockpit coaming and the cabin wall are in one line)
+CABIN_MARGIN     = 0.0      # cabin side walls rise straight from the sheer (rubbing strake), following the hull
 CABIN_Z_BOT      = 449.0    # cabin body extends down to here (just below the sill)
 # Aft end in plan view: a flat raked bulkhead between two "wings" that reach aft along the
 # coamings. Each wing ends in a CONCAVE quarter circle (centre in the cockpit) tangent to the
@@ -36,11 +35,11 @@ ROOF_NOSE_L      = 400.0
 NOSE_CORNER_BLEND = 220.0
 
 # Walkways: a shallow groove along each roof edge, running out through the aft edge and
-# ending where the roof edge starts curving into the nose; the roof outboard of the groove
-# stays at roof level (WALKWAY_RIM wide)
+# ending on the nose crease. The rim outboard of the groove is trapezoidal: outer face is
+# the cabin wall, WALKWAY_RIM wide flat top at roof level, 45 deg slope down into the groove.
 WALKWAY_W        = 220.0
 WALKWAY_DEPTH    = 20.0
-WALKWAY_RIM      = 60.0
+WALKWAY_RIM      = 30.0
 
 # Sunken foredeck: a narrow rim at the sheer, tilted slightly inboard, then a slope down to
 # the sunken deck; shallow next to the cabin, deeper towards the bow (planar sunken deck)
@@ -410,22 +409,24 @@ def build_jouet_sheriff_v4():
     # ~0 at the roof. The outline is intersected with the cabin body, which supplies the roof
     # and the wall inclination.
     z_roof_aft = roof_side_z(X_BULKHEAD + 300.0) + CABIN_ROOF_CAMBER
-    y_side_aft = beam(X_BULKHEAD) - CABIN_MARGIN + 30.0     # outside the wall foot: body governs
     x_aft_block_fwd = X_BULKHEAD                              # well cut reaches this far forward
 
     def aft_block():
+        """Sides follow the hull 30 mm outboard of the wall foot (so the body governs the wall),
+        converge onto the wall-foot line at the wing tip, where the concave arc starts tangent."""
         secs = []
         for z in np.linspace(CABIN_Z_BOT, z_roof_aft + 80.0, 48):
             x_aft = x_bulkhead_at(z)
             r = max(2.0, AFT_CORNER_R * min(1.0, max(0.0, (z_roof_aft - z) / (z_roof_aft - SEAT_Z))))
-            cx, cy = x_aft - r, y_side_aft - r
-            pts = [(6200.0, y_side_aft)]
-            for ang in np.linspace(np.pi / 2, 0.0, 12):          # (x_aft-r, y_side) -> (x_aft, y_side-r)
-                pts.append((cx + r * np.cos(ang), cy + r * np.sin(ang)))
-            for ang in np.linspace(0.0, -np.pi / 2, 12):         # mirrored port wing
-                pts.append((cx + r * np.cos(ang), -cy + r * np.sin(ang)))
-            pts.append((6200.0, -y_side_aft))
-            secs.append(np.array([[px, py, z] for px, py in pts]))
+            x_tip = x_aft - r
+            y_tip = beam(x_tip) - CABIN_MARGIN
+            cx, cy = x_tip, y_tip - r
+            side = [(x, beam(x) - CABIN_MARGIN + 30.0) for x in np.linspace(5500.0, x_tip + 250.0, 7)]
+            stbd = list(side)
+            for ang in np.linspace(np.pi / 2, 0.0, 12):          # (x_tip, y_tip) -> (x_aft, y_tip-r)
+                stbd.append((cx + r * np.cos(ang), cy + r * np.sin(ang)))
+            port = [(px, -py) for px, py in stbd[::-1]]
+            secs.append(np.array([[px, py, z] for px, py in stbd + port]))
         return loft(secs)
 
     cab = aft_block() ^ cabin_body(0.0)
@@ -457,10 +458,11 @@ def build_jouet_sheriff_v4():
         secs = []
         for x in np.arange(x_roof_aft - 200.0, X_ROOF_FRONT + ROOF_NOSE_L + 101.0, 25.0):
             _, _, y_top, zrs = wall_geometry(x)
-            y_in, y_out = y_top - WALKWAY_W, y_top - WALKWAY_RIM
+            y_in, y_rim = y_top - WALKWAY_W, y_top - WALKWAY_RIM
             z0, z1 = zrs - WALKWAY_DEPTH, zrs + 300.0
-            secs.append(np.array([[x, sign * y_in, z0], [x, sign * y_in, z1],
-                                  [x, sign * y_out, z1], [x, sign * y_out, z0]]))
+            # inner wall vertical, floor flat, outer side a 45 deg slope up to the rim top
+            secs.append(np.array([[x, sign * y_in, z0], [x, sign * y_in, z1], [x, sign * y_rim, z1],
+                                  [x, sign * y_rim, zrs], [x, sign * (y_rim - WALKWAY_DEPTH), z0]]))
         return secs
     cab = cab - loft(groove_sections(+1)) - loft(groove_sections(-1))
 
