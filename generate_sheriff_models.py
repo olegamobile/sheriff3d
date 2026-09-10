@@ -278,6 +278,25 @@ def build_jouet_sheriff_v4():
     print(f"Hull & Deck Solid: Watertight={hull_deck_mesh.is_watertight}")
     mh = to_manifold(hull_deck_mesh)
 
+    # Hull envelope: the hull sides continued straight up from the sheer. The cabin body is
+    # clipped to it so its below-deck part stays inside the hull (the topsides tuck in below
+    # the sheer; without this the cabin foot would stick out of the hull as a vertical skirt).
+    def hull_envelope_ring(x, n_hull_half=36):
+        b = beam(x)
+        kz = float(cs_keel(x))
+        sz = float(cs_sheer(x))
+        t = x / 6000.0
+        p = 1.25 + 0.55 * (t - 0.5) / 0.5 if t > 0.5 else 1.25 - 0.20 * (0.5 - t) / 0.5
+        q = 1.35 - 0.25 * (t - 0.5) / 0.5 if t > 0.5 else 1.35 + 0.25 * (0.5 - t) / 0.5
+        theta = np.linspace(0, np.pi/2 * 0.96, n_hull_half)
+        ys = b * (np.sin(theta) ** p)
+        zs = kz + (sz - kz) * (1.0 - np.cos(theta) ** q)
+        stbd = [(x, yy, zz) for yy, zz in zip(ys, zs)] + [(x, b, sz), (x, b, 3000.0)]
+        port = [(x, -b, 3000.0), (x, -b, sz)] + [(x, -yy, zz) for yy, zz in zip(ys[::-1][:-1], zs[::-1][:-1])]
+        return np.array(stbd + port)
+
+    hull_envelope = loft([hull_envelope_ring(x) for x in np.linspace(0, 5990, nx)])
+
     # 2. Authentic Cast-Iron Keel & Bulb (unchanged from V3)
     keel_stations_z = np.linspace(-260, -850, 21)
     keel_verts = []
@@ -411,25 +430,34 @@ def build_jouet_sheriff_v4():
     z_roof_aft = roof_side_z(X_BULKHEAD + 300.0) + CABIN_ROOF_CAMBER
     x_aft_block_fwd = X_BULKHEAD                              # well cut reaches this far forward
 
+    # The bench pockets exist only below the sheer: the wings' top is flush with the gunwale
+    # strip, and above it the bulkhead is one flat full-width plane with sharp corners.
+    z_wing_top = deck_z(X_BULKHEAD, beam(X_BULKHEAD) - GUNWALE_W / 2.0)
+
     def aft_block():
-        """Sides follow the hull 30 mm outboard of the wall foot (so the body governs the wall),
-        converge onto the wall-foot line at the wing tip, where the concave arc starts tangent."""
+        """Plan outline per height: sides 30 mm outboard of the hull (body governs the wall);
+        below the sheer the wings run aft along the coamings and end in a concave quarter
+        circle tangent to the coaming (y = b - GUNWALE_W) and to the bulkhead."""
         secs = []
-        for z in np.linspace(CABIN_Z_BOT, z_roof_aft + 80.0, 48):
+        for z in (CABIN_Z_BOT, z_wing_top - 0.5, z_wing_top + 0.5, z_roof_aft + 80.0):
             x_aft = x_bulkhead_at(z)
-            r = max(2.0, AFT_CORNER_R * min(1.0, max(0.0, (z_roof_aft - z) / (z_roof_aft - SEAT_Z))))
-            x_tip = x_aft - r
-            y_tip = beam(x_tip) - CABIN_MARGIN
+            if z <= z_wing_top:
+                r = AFT_CORNER_R
+                x_tip = x_aft - r
+                y_tip = beam(x_tip) - GUNWALE_W
+            else:
+                r = 2.0
+                x_tip = x_aft - r
+                y_tip = beam(x_tip) - CABIN_MARGIN + 30.0 - r
             cx, cy = x_tip, y_tip - r
-            side = [(x, beam(x) - CABIN_MARGIN + 30.0) for x in np.linspace(5500.0, x_tip + 250.0, 7)]
-            stbd = list(side)
+            stbd = [(x, beam(x) - CABIN_MARGIN + 30.0) for x in np.linspace(5500.0, x_tip, 7)]
             for ang in np.linspace(np.pi / 2, 0.0, 12):          # (x_tip, y_tip) -> (x_aft, y_tip-r)
                 stbd.append((cx + r * np.cos(ang), cy + r * np.sin(ang)))
             port = [(px, -py) for px, py in stbd[::-1]]
             secs.append(np.array([[px, py, z] for px, py in stbd + port]))
         return loft(secs)
 
-    cab = aft_block() ^ cabin_body(0.0)
+    cab = aft_block() ^ cabin_body(0.0) ^ hull_envelope
 
     # Side windows: raised trapezoid bezel + recessed tinted pane, both sides
     def win_prism(inset):
