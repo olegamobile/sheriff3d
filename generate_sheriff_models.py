@@ -17,19 +17,23 @@ X_BULKHEAD       = 2200.0   # aft cabin bulkhead at deck level
 X_ROOF_FRONT     = 3400.0   # roof / forward-slope crease (mast stands just aft of it)
 CABIN_SIDE_H     = 340.0    # cabin side wall height above the deck at the wall base
 CABIN_ROOF_CAMBER = 25.0    # roof crown
-CABIN_MARGIN     = 90.0     # narrow side-deck strip between sheer and cabin wall
+CABIN_MARGIN     = 120.0    # side-deck strip between sheer and cabin wall (same level as the gunwale)
 WALL_TUMBLEHOME  = np.radians(20.0)   # cabin walls lean inward
 SLOPE_ANGLE      = np.radians(25.0)   # forward slope of the coachroof
 BULKHEAD_RAKE    = np.radians(8.0)    # aft bulkhead leans forward at the top
 ROOF_AFT_R       = 150.0    # plan-view radius of the aft roof corners
-# Forward of X_ROOF_FRONT the roof/slope outline is a quarter-ellipse in plan view (rounded nose);
-# the side walls keep following the deck edge and flare out to meet it.
+# Forward of X_ROOF_FRONT the whole cabin (roof crease and wall foot) narrows along a
+# quarter-ellipse in plan view, so the entire front face is one curved sloping surface.
 
-# Low toe rails ("стеночки") along the foredeck edges, continuing the cabin walls to the bow
-RAIL_T           = 45.0
-RAIL_H_AFT       = 130.0
-RAIL_H_FWD       = 60.0
-RAIL_X1          = 5800.0
+# Slightly recessed walkways along both roof edges
+WALKWAY_W        = 250.0
+WALKWAY_DEPTH    = 20.0
+
+# Sunken foredeck: the gunwale strip stays at sheer level, the deck inside drops down
+FOREDECK_RIM     = 150.0    # width of the strip along the sheer
+FOREDECK_RECESS  = 120.0    # depth below the centreline deck
+FOREDECK_SLOPE_W = 100.0    # horizontal width of the slope from the rim down to the sunken deck
+FOREDECK_END     = 5550.0   # the recess closes in a V this far forward
 
 # Forward hatch (tinted acrylic, hinged, no frame) on the forward slope
 HATCH_X0, HATCH_X1 = 3440.0, 3860.0
@@ -63,11 +67,12 @@ FOOTWELL_HW_AFT  = 330.0    # footwell half-width at the transom
 FOOTWELL_HW_FWD  = 500.0    # footwell half-width at the bulkhead
 SEAT_END_R       = 450.0    # benches end at the bulkhead in a quarter-round shoulder at deck height
 
-# Foot-brace board on two posts + transverse boom-vang beam in the footwell
-POST_X           = (1050.0, 1650.0)
+# Foot-brace board lying flat on two posts along the footwell + transverse boom-vang beam
+POST_X           = (300.0, 2000.0)
 POST_W           = 60.0
-BOARD_T          = 40.0
-BOARD_Z          = (350.0, 470.0)
+BOARD_X          = (200.0, 2100.0)
+BOARD_W          = 55.0     # real board is 5-6 cm wide
+BOARD_Z          = (390.0, 430.0)
 BEAM_X           = 1650.0
 BEAM_W           = 60.0
 BEAM_Z           = (420.0, 480.0)
@@ -310,30 +315,37 @@ def build_jouet_sheriff_v4():
             return roof_side_aft + roof_k * (x - X_BULKHEAD)
         return roof_side_front - (x - X_ROOF_FRONT) * np.tan(SLOPE_ANGLE)
 
-    # X where the slope reaches the deck: end of the rounded nose
+    def foredeck_z(x):
+        return deck_z(x, 0.0) - FOREDECK_RECESS
+
+    # X where the slope reaches the sunken foredeck: end of the rounded nose
     x_nose_end = X_ROOF_FRONT
-    while roof_side_z(x_nose_end) > deck_z(x_nose_end, 0.0) and x_nose_end < 5500.0:
+    while roof_side_z(x_nose_end) > foredeck_z(x_nose_end) and x_nose_end < 5500.0:
         x_nose_end += 1.0
     nose_len = x_nose_end - X_ROOF_FRONT
 
-    def cabin_section(x, d=0.0):
-        """Closed cross-section of the coachroof body, offset outward by d."""
+    def wall_geometry(x, d=0.0):
+        """(y_base, z_base, y_top, z_roof_side) of the cabin wall at station x."""
         b = beam(x)
         y_base = b - CABIN_MARGIN + d
-        # Rounded aft roof corners (plan view)
         dx_aft = min(ROOF_AFT_R, max(0.0, X_BULKHEAD + ROOF_AFT_R - x))
-        corner_in = ROOF_AFT_R - np.sqrt(ROOF_AFT_R ** 2 - dx_aft ** 2)
-        y_base -= corner_in
+        y_base -= ROOF_AFT_R - np.sqrt(ROOF_AFT_R ** 2 - dx_aft ** 2)
         z_base = deck_z(x, y_base)
         zrs = roof_side_z(x) + d
         h_wall = max(0.0, zrs - z_base)
         y_top = y_base - h_wall * np.tan(WALL_TUMBLEHOME)
-        # Rounded nose: the roof/slope outline follows a quarter-ellipse in plan view
         if x > X_ROOF_FRONT:
+            # Rounded nose: the whole front (wall foot and roof crease) follows a quarter-ellipse
             t = min(1.0, (x - X_ROOF_FRONT) / nose_len)
-            y_top *= np.sqrt(max(0.0025, 1.0 - t * t))
-        y_top = max(y_top, 8.0)
-        z_bot = z_base - 150.0
+            f = np.sqrt(max(0.0025, 1.0 - t * t))
+            y_base *= f
+            y_top *= f
+        return max(y_base, 15.0), z_base, max(y_top, 8.0), zrs
+
+    def cabin_section(x, d=0.0):
+        """Closed cross-section of the coachroof body, offset outward by d."""
+        y_base, z_base, y_top, zrs = wall_geometry(x, d)
+        z_bot = z_base - 180.0
         zrs = max(zrs, z_bot + 10.0)
         ys = np.linspace(y_top, 0.0, 6)
         zs = zrs + CABIN_ROOF_CAMBER * (1.0 - (ys / max(y_top, 1.0)) ** 2)
@@ -386,22 +398,18 @@ def build_jouet_sheriff_v4():
     # Mast step pad at the forward edge of the flat roof
     mast_pad = trimesh.creation.cylinder(radius=MAST_PAD_R, height=60.0)
     mast_pad.apply_translation([MAST_X, 0.0, roof_side_z(MAST_X) + CABIN_ROOF_CAMBER + 10.0])
-    cab = cab + to_manifold(mast_pad)
-
-    # Toe rails along the foredeck edges, growing out of the cabin walls
-    def rail_sections(sign):
+    # Recessed walkways along both roof edges: flat cut WALKWAY_DEPTH below the roof edge line
+    def walkway_sections(sign):
         secs = []
-        for x in np.arange(X_ROOF_FRONT + 100.0, RAIL_X1 + 1.0, 50.0):
-            b = beam(x)
-            y_out = b - CABIN_MARGIN          # outer face flush with the cabin wall foot
-            y_in = y_out - RAIL_T
-            t = (x - X_ROOF_FRONT) / (RAIL_X1 - X_ROOF_FRONT)
-            h = RAIL_H_AFT + t * (RAIL_H_FWD - RAIL_H_AFT)
-            zd = deck_z(x, y_in)
-            secs.append(np.array([[x, sign * y_in, zd - 40.0], [x, sign * y_in, zd + h],
-                                  [x, sign * y_out, zd + h], [x, sign * y_out, zd - 40.0]]))
+        for x in np.arange(X_BULKHEAD + ROOF_AFT_R + 10.0, X_ROOF_FRONT - 19.0, 25.0):
+            _, _, y_top, zrs = wall_geometry(x)
+            y_in, y_out = y_top - WALKWAY_W, y_top + 200.0
+            z0, z1 = zrs - WALKWAY_DEPTH, zrs + 300.0
+            secs.append(np.array([[x, sign * y_in, z0], [x, sign * y_in, z1],
+                                  [x, sign * y_out, z1], [x, sign * y_out, z0]]))
         return secs
-    cab = cab + loft(rail_sections(+1)) + loft(rail_sections(-1))
+    cab = cab - loft(walkway_sections(+1)) - loft(walkway_sections(-1))
+    cab = cab + to_manifold(mast_pad)
     cabin_solid = to_watertight_trimesh(cab)
     print(f"Coachroof Solid: Watertight={cabin_solid.is_watertight}")
 
@@ -431,25 +439,41 @@ def build_jouet_sheriff_v4():
     footwell = loft([rect_sec(X_COCKPIT_AFT, footwell_hw(X_COCKPIT_AFT), FLOOR_Z, SEAT_Z + 100.0),
                      rect_sec(X_BULKHEAD, footwell_hw(X_BULKHEAD), FLOOR_Z, SEAT_Z + 100.0)])
 
-    # Foot-brace board on two posts + transverse vang beam
+    # Sunken foredeck: rim at sheer level, sloped inner edge, flat sunken deck, closing in a V forward
+    def foredeck_sections():
+        secs = []
+        x = X_ROOF_FRONT
+        while True:
+            hw_top = min(beam(x) - FOREDECK_RIM, 0.9 * (FOREDECK_END - x))
+            if hw_top < 12.0:
+                break
+            hw_floor = max(hw_top - FOREDECK_SLOPE_W, 6.0)
+            z_top, z_floor = deck_z(x, 0.0) + 5.0, foredeck_z(x)
+            secs.append(np.array([[x, hw_top, 2000.0], [x, hw_top, z_top], [x, hw_floor, z_floor],
+                                  [x, -hw_floor, z_floor], [x, -hw_top, z_top], [x, -hw_top, 2000.0]]))
+            x += 25.0
+        return secs
+    foredeck_well = loft(foredeck_sections())
+
+    # Foot-brace board lying flat on two posts + transverse vang beam
     fittings = None
     for px in POST_X:
-        post = mbox(px - POST_W/2, px + POST_W/2, -POST_W/2, POST_W/2, FLOOR_Z - 20.0, BOARD_Z[1] + 10.0)
+        post = mbox(px - POST_W/2, px + POST_W/2, -POST_W/2, POST_W/2, FLOOR_Z - 20.0, BOARD_Z[1] - 10.0)
         fittings = post if fittings is None else fittings + post
-    board = mbox(POST_X[0] - 60.0, POST_X[1] + 60.0, -BOARD_T/2, BOARD_T/2, BOARD_Z[0], BOARD_Z[1])
+    board = mbox(BOARD_X[0], BOARD_X[1], -BOARD_W/2, BOARD_W/2, BOARD_Z[0], BOARD_Z[1])
     beam_hw = footwell_hw(BEAM_X) + 40.0
     vang_beam = mbox(BEAM_X - BEAM_W/2, BEAM_X + BEAM_W/2, -beam_hw, beam_hw, BEAM_Z[0], BEAM_Z[1])
     fittings = fittings + board + vang_beam
 
-    # Mooring cleat, athwartships, mid-foredeck
-    zc = deck_z(CLEAT_X, 0.0)
+    # Mooring cleat, athwartships, in the middle of the sunken foredeck
+    zc = foredeck_z(CLEAT_X)
     cleat = mbox(CLEAT_X - 18.0, CLEAT_X + 18.0, -30.0, 30.0, zc - 10.0, zc + 30.0) + \
             mbox(CLEAT_X - 16.0, CLEAT_X + 16.0, -70.0, 70.0, zc + 25.0, zc + 50.0)
 
     # ------------------------------------------------------------------
-    # 5. Assemble full boat
+    # 5. Assemble full boat (foredeck is sunk before the cabin is added, so the nose sits on it)
     # ------------------------------------------------------------------
-    m_full = mh + mk + cab
+    m_full = (mh - foredeck_well) + mk + cab
     m_full = m_full - cockpit_well - footwell
     m_full = m_full + fittings + cleat
     full_boat = to_watertight_trimesh(m_full)
