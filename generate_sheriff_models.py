@@ -17,7 +17,13 @@ X_BULKHEAD       = 2200.0   # aft cabin bulkhead at deck level
 X_ROOF_FRONT     = 3400.0   # roof / forward-slope crease (mast stands just aft of it)
 CABIN_SIDE_H     = 340.0    # cabin side wall height above the deck at the wall base
 CABIN_ROOF_CAMBER = 25.0    # roof crown
-CABIN_MARGIN     = 120.0    # side-deck strip between sheer and cabin wall (same level as the gunwale)
+CABIN_MARGIN     = 150.0    # side-deck strip between sheer and cabin wall foot (= GUNWALE_W, so the
+                            # cockpit coaming and the cabin wall are in one line)
+CABIN_Z_BOT      = 360.0    # cabin body extends down to here (below the seats, above the sill)
+# Aft corners: in plan view the cabin's aft end is a flat raked bulkhead with rounded corners whose
+# radius shrinks from AFT_CORNER_R at seat level to zero at the roof, so the bench's rounded
+# "shoulder" is one surface with the cabin side wall and the roof corners stay sharp.
+AFT_CORNER_R     = 450.0
 WALL_TUMBLEHOME  = np.radians(20.0)   # cabin walls lean inward
 SLOPE_ANGLE      = np.radians(32.0)   # forward slope of the coachroof (straight ahead)
 BULKHEAD_RAKE    = np.radians(30.0)   # aft bulkhead: one flat plane leaning forward, parallel to the window's aft edge
@@ -63,7 +69,7 @@ WIN_GLASS_RECESS = 8.0
 
 # Companionway: large opening in the raked bulkhead, modelled as a deep pocket
 DOOR_HALF_W      = 350.0
-DOOR_Z0, DOOR_Z1 = 520.0, 1060.0
+DOOR_Z0, DOOR_Z1 = 375.0, 1060.0
 DOOR_RECESS      = 200.0
 
 # Mast step pad on the roof, a little aft of the crease
@@ -71,13 +77,13 @@ MAST_X           = 3560.0
 MAST_PAD_R       = 70.0
 
 # Cockpit: benches and footwell run from the transom wall to the bulkhead (no aft seat)
-GUNWALE_W        = 170.0    # flat strip along the sheer, its inner face is the coaming
+GUNWALE_W        = 150.0    # flat strip along the sheer, its inner face is the coaming
 X_COCKPIT_AFT    = 80.0     # transom wall thickness
 SEAT_Z           = 500.0    # horizontal seat plane
 FLOOR_Z          = 230.0    # horizontal footwell sole (must stay above the deck pin sockets)
 FOOTWELL_HW_AFT  = 330.0    # footwell half-width at the transom
 FOOTWELL_HW_FWD  = 500.0    # footwell half-width at the bulkhead
-SEAT_END_R       = 450.0    # benches end at the bulkhead in a quarter-round shoulder at deck height
+SILL_Z           = 350.0    # bridge-deck sill in front of the bulkhead: the raked wall runs down to here
 
 # Foot-brace board lying flat on two posts along the footwell + transverse boom-vang beam
 POST_X           = (300.0, 2000.0)
@@ -357,9 +363,10 @@ def build_jouet_sheriff_v4():
 
     def cabin_section(x, d=0.0, n_half=41):
         """Closed cross-section of the coachroof body, offset outward by d.
-        Top surface = min(cambered roof, blend(inclined side wall, front slope))."""
+        Top surface = min(cambered roof, blend(inclined side wall, front slope)); below the deck
+        the wall foot drops vertically to CABIN_Z_BOT, in line with the cockpit coaming."""
         y_base, z_base, y_top, zrs = wall_geometry(x, d)
-        z_bot = z_base - 180.0
+        z_bot = CABIN_Z_BOT
         dx = max(0.0, x - X_ROOF_FRONT)
         a_r, b_r = ROOF_NOSE_L + d, roof_nose_hw + d
         ys = np.linspace(y_base, 0.0, n_half)
@@ -376,10 +383,10 @@ def build_jouet_sheriff_v4():
         port = [(x, -yy, zz) for yy, zz in zip(ys[::-1][1:], zs[::-1][1:])] + [(x, -y_base, z_bot)]
         return np.array(stbd + port)
 
-    # the nose is fully below the body bottom this far forward
+    # the nose is fully below the sunken foredeck this far forward
     x_nose_end = X_ROOF_FRONT + ROOF_NOSE_L + \
-        (roof_side_front + CABIN_ROOF_CAMBER - (deck_z(X_ROOF_FRONT, 0.0) - 180.0)) / np.tan(SLOPE_ANGLE)
-    cab_x = np.concatenate([np.arange(X_BULKHEAD - 50.0, X_ROOF_FRONT, 50.0), [X_ROOF_FRONT],
+        (roof_side_front + CABIN_ROOF_CAMBER - (deck_z(X_ROOF_FRONT, 0.0) - 250.0)) / np.tan(SLOPE_ANGLE)
+    cab_x = np.concatenate([np.arange(X_BULKHEAD - 300.0, X_ROOF_FRONT, 50.0), [X_ROOF_FRONT],
                             np.arange(X_ROOF_FRONT + 25.0, x_nose_end + 50.0, 25.0)])
 
     def cabin_body(d=0.0):
@@ -393,7 +400,33 @@ def build_jouet_sheriff_v4():
         cut.apply_translation([x_at_deck, 0.0, z_deck_bulk])
         return to_manifold(cut)
 
-    cab = cabin_body(0.0) - rake_cut(X_BULKHEAD)
+    def x_bulkhead_at(z):
+        return X_BULKHEAD + (z - z_deck_bulk) * np.tan(BULKHEAD_RAKE)
+
+    # Aft end of the cabin as a plan-view outline lofted in Z: raked flat bulkhead plus rounded
+    # corners whose radius goes from AFT_CORNER_R at seat level to ~0 at the roof.
+    z_roof_aft = roof_side_z(X_BULKHEAD + 300.0) + CABIN_ROOF_CAMBER
+    y_side_aft = beam(X_BULKHEAD + AFT_CORNER_R) - CABIN_MARGIN
+    x_aft_block_fwd = X_BULKHEAD + AFT_CORNER_R + 150.0
+
+    def aft_block():
+        secs = []
+        for z in np.linspace(CABIN_Z_BOT, z_roof_aft + 80.0, 48):
+            x_aft = x_bulkhead_at(z)
+            r = max(2.0, AFT_CORNER_R * min(1.0, max(0.0, (z_roof_aft - z) / (z_roof_aft - SEAT_Z))))
+            cx, cy = x_aft + r, y_side_aft - r
+            pts = [(x_aft_block_fwd, y_side_aft)]
+            for ang in np.linspace(np.pi / 2, np.pi, 12):
+                pts.append((cx + r * np.cos(ang), cy + r * np.sin(ang)))
+            for ang in np.linspace(np.pi, 1.5 * np.pi, 12):
+                pts.append((cx + r * np.cos(ang), -cy + r * np.sin(ang)))
+            pts.append((x_aft_block_fwd, -y_side_aft))
+            secs.append(np.array([[px, py, z] for px, py in pts]))
+        return loft(secs)
+
+    body = cabin_body(0.0)
+    fwd_part = body - mbox(-500.0, x_aft_block_fwd - 60.0, -3000.0, 3000.0, -1000.0, 4000.0)
+    cab = fwd_part + (aft_block() ^ body)
 
     # Side windows: raised trapezoid bezel + recessed tinted pane, both sides
     def win_prism(inset):
@@ -446,24 +479,19 @@ def build_jouet_sheriff_v4():
         t = (x - X_COCKPIT_AFT) / (X_BULKHEAD - X_COCKPIT_AFT)
         return FOOTWELL_HW_AFT + t * (FOOTWELL_HW_FWD - FOOTWELL_HW_AFT)
 
-    # Bench cut: follows the coaming, then turns in a quarter circle towards the bulkhead,
-    # leaving a rounded shoulder at deck height where each bench meets the cabin.
-    def well_hw(x):
-        hw = beam(x) - GUNWALE_W
-        xc = X_BULKHEAD - SEAT_END_R
-        if x > xc:
-            hw = min(hw, footwell_hw(X_BULKHEAD) + np.sqrt(max(0.0, SEAT_END_R ** 2 - (x - xc) ** 2)))
-        return hw
+    # Bench cut: full width inside the coaming, carried forward past the cabin's rounded aft
+    # corners; the cabin body (unioned afterwards) refills its own footprint, so the seats run
+    # right up to the rounded corner walls with no ledge.
+    well_x = np.arange(X_COCKPIT_AFT, x_aft_block_fwd + 1.0, 40.0)
+    cockpit_well = loft([rect_sec(x, beam(x) - GUNWALE_W + 1.0, SEAT_Z, 2500.0) for x in well_x])
 
-    # The well is clipped by the raked bulkhead plane so the bulkhead is raked right down to the seats
-    well_x = np.concatenate([np.arange(X_COCKPIT_AFT, X_BULKHEAD - SEAT_END_R, 40.0),
-                             np.arange(X_BULKHEAD - SEAT_END_R, X_BULKHEAD - 1.0, 10.0), [X_BULKHEAD]])
-    cockpit_well = loft([rect_sec(x, well_hw(x), SEAT_Z, 2500.0) for x in well_x]) ^ rake_cut(X_BULKHEAD)
-
-    # Footwell ends where the raked bulkhead reaches seat level (a bridge-deck sill remains)
-    x_footwell_fwd = X_BULKHEAD - (z_deck_bulk - SEAT_Z) * np.tan(BULKHEAD_RAKE)
+    # Footwell ends where the raked bulkhead reaches the sill level; between there and the
+    # bulkhead a sill SILL_Z high remains, so the raked wall continues below the seats
+    x_sill = x_bulkhead_at(SILL_Z)
     footwell = loft([rect_sec(X_COCKPIT_AFT, footwell_hw(X_COCKPIT_AFT), FLOOR_Z, SEAT_Z + 100.0),
-                     rect_sec(x_footwell_fwd, footwell_hw(x_footwell_fwd), FLOOR_Z, SEAT_Z + 100.0)])
+                     rect_sec(x_sill, footwell_hw(x_sill), FLOOR_Z, SEAT_Z + 100.0)])
+    sill_cut = mbox(x_sill - 10.0, X_BULKHEAD + 400.0, -footwell_hw(x_sill), footwell_hw(x_sill),
+                    SILL_Z, SEAT_Z + 100.0) ^ rake_cut(X_BULKHEAD)
 
     # Companionway: large opening in the raked bulkhead, modelled as a pocket DOOR_RECESS deep
     door_box = mbox(X_BULKHEAD - 300.0, X_BULKHEAD + 1200.0, -DOOR_HALF_W, DOOR_HALF_W, DOOR_Z0, DOOR_Z1)
@@ -506,8 +534,10 @@ def build_jouet_sheriff_v4():
     # ------------------------------------------------------------------
     # 5. Assemble full boat (foredeck is sunk before the cabin is added, so the nose sits on it)
     # ------------------------------------------------------------------
-    m_full = (mh - foredeck_well) + mk + cab
-    m_full = m_full - cockpit_well - footwell - door_pocket
+    # Cut the hull first, then add the cabin (its rounded aft end refills its own footprint down
+    # to the seats), then cut the companionway pocket through cabin and hull together.
+    m_full = (mh - foredeck_well - cockpit_well - footwell - sill_cut) + mk + cab
+    m_full = m_full - door_pocket
     m_full = m_full + fittings + cleat
     full_boat = to_watertight_trimesh(m_full)
     print(f"FULL BOAT V4 SOLID: Watertight={full_boat.is_watertight}, Volume={full_boat.volume:.1f} mm³")
